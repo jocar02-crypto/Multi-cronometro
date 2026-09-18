@@ -1,0 +1,298 @@
+// Estado de la Aplicación (Extendido con datos de brazada)
+let estado = {
+    activo: false,
+    tiempoInicio: 0,
+    intervaloGeneral: null,
+    nadadores: []
+};
+
+let chartInstancia = null;
+
+// Inicialización
+document.getElementById('fechaTorneo').valueAsDate = new Date();
+generarCarriles();
+inicializarGrafica();
+
+function generarCarriles() {
+    const cantidad = parseInt(document.getElementById('numNadadores').value) || 1;
+    const container = document.getElementById('gridCarriles');
+    container.innerHTML = '';
+    
+    estado.nadadores = [];
+
+    for (let i = 1; i <= cantidad; i++) {
+        estado.nadadores.push({
+            id: i,
+            nombre: `Nadador ${i}`,
+            tiemposParciales: [], // ms
+            brazadasParciales: [], // Conteo de ciclos/brazadas por parcial de 50m
+            finalizado: false
+        });
+
+        container.innerHTML += `
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-4 flex flex-col justify-between space-y-3">
+                <div class="flex justify-between items-center border-b border-slate-700 pb-2">
+                    <span class="text-xs font-bold text-cyan-400">CARRIL ${i}</span>
+                    <span id="status-${i}" class="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300">Listo</span>
+                </div>
+                <input type="text" value="Nadador ${i}" onchange="actualizarNombre(${i}, this.value)" 
+                       class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm font-semibold text-slate-200">
+                
+                <div class="text-center py-1">
+                    <span id="display-${i}" class="text-3xl font-mono font-bold text-white">00:00.00</span>
+                </div>
+
+                <!-- Entrada de Brazadas por parcial -->
+                <div class="bg-slate-900 p-2 rounded-lg border border-slate-700/50">
+                    <label class="block text-[10px] text-slate-400 mb-1">Brazadas (Ciclos) en este parcial de 50m:</label>
+                    <input type="number" id="inputBrazada-${i}" value="35" min="1" max="100" 
+                           class="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-cyan-300 font-bold focus:outline-none">
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="marcarSplit(${i})" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2 rounded-lg text-sm transition">
+                        ⏱️ Split
+                    </button>
+                    <button onclick="detenerNadador(${i})" class="bg-rose-500 hover:bg-rose-400 text-white font-bold py-2 rounded-lg text-sm transition">
+                        🛑 Stop
+                    </button>
+                </div>
+                <div class="text-xs text-slate-400 h-16 overflow-y-auto font-mono bg-slate-900 p-1.5 rounded space-y-1" id="splits-summary-${i}">
+                    Sin parciales
+                </div>
+            </div>
+        `;
+    }
+    actualizarReporte();
+}
+
+function actualizarNombre(id, nuevoNombre) {
+    const nadador = estado.nadadores.find(n => n.id === id);
+    if (nadador) nadador.nombre = nuevoNombre;
+    actualizarReporte();
+}
+
+function iniciarTodos() {
+    if (estado.activo) return;
+    estado.activo = true;
+    estado.tiempoInicio = Date.now();
+
+    estado.intervaloGeneral = setInterval(() => {
+        const transcurrido = Date.now() - estado.tiempoInicio;
+        document.getElementById('relojGeneral').innerText = formatearTiempo(transcurrido);
+
+        estado.nadadores.forEach(n => {
+            if (!n.finalizado) {
+                document.getElementById(`display-${n.id}`).innerText = formatearTiempo(transcurrido);
+            }
+        });
+    }, 10);
+}
+
+function marcarSplit(id) {
+    if (!estado.activo) return;
+    const nadador = estado.nadadores.find(n => n.id === id);
+    if (nadador && !nadador.finalizado) {
+        const tiempoActual = Date.now() - estado.tiempoInicio;
+        const numBrazadas = parseInt(document.getElementById(`inputBrazada-${id}`).value) || 0;
+        
+        nadador.tiemposParciales.push(tiempoActual);
+        nadador.brazadasParciales.push(numBrazadas);
+        
+        renderizarSplitsCarril(nadador);
+        actualizarReporte();
+    }
+}
+
+function detenerNadador(id) {
+    if (!estado.activo) return;
+    const nadador = estado.nadadores.find(n => n.id === id);
+    if (nadador && !nadador.finalizado) {
+        const tiempoFinal = Date.now() - estado.tiempoInicio;
+        const numBrazadas = parseInt(document.getElementById(`inputBrazada-${id}`).value) || 0;
+        
+        nadador.tiemposParciales.push(tiempoFinal);
+        nadador.brazadasParciales.push(numBrazadas);
+        nadador.finalizado = true;
+        
+        document.getElementById(`status-${id}`).innerText = "Finalizado";
+        document.getElementById(`status-${id}`).className = "text-xs px-2 py-0.5 rounded bg-emerald-900 text-emerald-300";
+        
+        renderizarSplitsCarril(nadador);
+        actualizarReporte();
+    }
+}
+
+function renderizarSplitsCarril(nadador) {
+    const container = document.getElementById(`splits-summary-${nadador.id}`);
+    let html = '';
+    let ultimoTiempo = 0;
+
+    nadador.tiemposParciales.forEach((t, index) => {
+        const lap = t - ultimoTiempo;
+        const brazadas = nadador.brazadasParciales[index] || 0;
+        html += `<div>#${index + 1} (${(index + 1) * 50}m): ${formatearTiempo(t)} [Brz: ${brazadas}]</div>`;
+        ultimoTiempo = t;
+    });
+    container.innerHTML = html;
+}
+
+function reiniciarTodo() {
+    clearInterval(estado.intervaloGeneral);
+    estado.activo = false;
+    estado.tiempoInicio = 0;
+    document.getElementById('relojGeneral').innerText = "00:00.00";
+    generarCarriles();
+}
+
+function formatearTiempo(ms) {
+    const min = Math.floor(ms / 60000);
+    const seg = Math.floor((ms % 60000) / 1000);
+    const cent = Math.floor((ms % 1000) / 10);
+    return `${String(min).padStart(2, '0')}:${String(seg).padStart(2, '0')}.${String(cent).padStart(2, '0')}`;
+}
+
+// Generación de Reportes con Métricas de Eficiencia Táctica
+function actualizarReporte() {
+    const fecha = document.getElementById('fechaTorneo').value;
+    const piscina = document.getElementById('longitudPiscina').value;
+    const prueba = document.getElementById('distanciaPrueba').value;
+
+    document.getElementById('repFecha').innerText = fecha;
+    document.getElementById('repPiscina').innerText = `${piscina} metros`;
+    document.getElementById('repPrueba').innerText = `${prueba} metros`;
+    document.getElementById('repHora').innerText = new Date().toLocaleTimeString();
+
+    const contenedorTablas = document.getElementById('tablasResultados');
+    contenedorTablas.innerHTML = '';
+
+    const datasetsGrafica = [];
+
+    estado.nadadores.forEach(nadador => {
+        if (nadador.tiemposParciales.length === 0) return;
+
+        let tablaHTML = `
+            <div class="border rounded-lg p-4 bg-slate-50 space-y-2">
+                <h4 class="font-bold text-slate-800 text-md border-b pb-1">${nadador.nombre} (Carril ${nadador.id})</h4>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left border-collapse">
+                        <thead>
+                            <tr class="border-b bg-slate-200 text-slate-700">
+                                <th class="p-1">Tramo</th>
+                                <th class="p-1">Acumulado</th>
+                                <th class="p-1">Lap (s)</th>
+                                <th class="p-1">Brazadas</th>
+                                <th class="p-1">Velocidad (m/s)</th>
+                                <th class="p-1">SL (m/ciclo)</th>
+                                <th class="p-1">SR (SPM)</th>
+                                <th class="p-1 bg-cyan-100 text-cyan-900">SEI (Eficiencia)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+
+        let tiempoAnterior = 0;
+        const indicesSEI = [];
+
+        nadador.tiemposParciales.forEach((tAcumulado, idx) => {
+            const tiempoLapSeg = (tAcumulado - tiempoAnterior) / 1000;
+            const distanciaLap = 50; 
+            const brazadas = nadador.brazadasParciales[idx] || 1; // Evita división por cero
+            
+            // Cálculos Cinematices
+            const msVelocidad = tiempoLapSeg > 0 ? (distanciaLap / tiempoLapSeg) : 0;
+            const strokeLength = distanciaLap / brazadas; // SL (m/ciclo)
+            const strokeRate = (brazadas / tiempoLapSeg) * 60; // SR (Ciclos/min)
+            const sei = msVelocidad * strokeLength; // SEI = v * SL
+
+            indicesSEI.push(sei.toFixed(2));
+
+            tablaHTML += `
+                <tr class="border-b hover:bg-slate-100">
+                    <td class="p-1 font-semibold">${(idx + 1) * 50}m</td>
+                    <td class="p-1 font-mono">${formatearTiempo(tAcumulado)}</td>
+                    <td class="p-1 font-mono">${tiempoLapSeg.toFixed(2)}s</td>
+                    <td class="p-1 font-mono">${brazadas}</td>
+                    <td class="p-1 font-mono font-semibold text-slate-700">${msVelocidad.toFixed(2)} m/s</td>
+                    <td class="p-1 font-mono text-slate-600">${strokeLength.toFixed(2)} m</td>
+                    <td class="p-1 font-mono text-slate-600">${strokeRate.toFixed(1)} SPM</td>
+                    <td class="p-1 font-mono font-bold text-cyan-700 bg-cyan-50">${sei.toFixed(2)}</td>
+                </tr>
+            `;
+            tiempoAnterior = tAcumulado;
+        });
+
+        tablaHTML += `</tbody></table></div></div>`;
+        contenedorTablas.innerHTML += tablaHTML;
+
+        const colores = ['#0284c7', '#059669', '#d97706', '#dc2626', '#7c3aed', '#db2777', '#4b5563', '#0891b2'];
+        datasetsGrafica.push({
+            label: `${nadador.nombre} (SEI)`,
+            data: indicesSEI,
+            borderColor: colores[(nadador.id - 1) % colores.length],
+            backgroundColor: colores[(nadador.id - 1) % colores.length],
+            tension: 0.2,
+            fill: false
+        });
+    });
+
+    actualizarGrafica(datasetsGrafica);
+}
+
+function inicializarGrafica() {
+    const ctx = document.getElementById('chartVelocidad').getContext('2d');
+    chartInstancia = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['50m', '100m', '150m', '200m'],
+            datasets: []
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    title: { display: true, text: 'Índice SEI (v × SL)' },
+                    suggestedMin: 1.0,
+                    suggestedMax: 4.0
+                },
+                x: {
+                    title: { display: true, text: 'Parciales de Carrera' }
+                }
+            }
+        }
+    });
+}
+
+function actualizarGrafica(datasets) {
+    if (!chartInstancia) return;
+    
+    let maxSplits = 0;
+    datasets.forEach(d => { if (d.data.length > maxSplits) maxSplits = d.data.length; });
+    
+    const labels = [];
+    for (let i = 1; i <= maxSplits; i++) {
+        labels.push(`${i * 50}m`);
+    }
+
+    chartInstancia.data.labels = labels;
+    chartInstancia.data.datasets = datasets;
+    chartInstancia.update();
+}
+
+function guardarEvento() {
+    const fecha = document.getElementById('fechaTorneo').value;
+    const prueba = document.getElementById('distanciaPrueba').value;
+    const idGuardado = `SwimData_${fecha}_${prueba}m_${Date.now()}`;
+    
+    const datosAguardar = {
+        fecha: fecha,
+        piscina: document.getElementById('longitudPiscina').value,
+        prueba: prueba,
+        nadadores: estado.nadadores
+    };
+
+    localStorage.setItem(idGuardado, JSON.stringify(datosAguardar));
+    alert(`Control técnico guardado exitosamente con ID: ${idGuardado}`);
+}
+      
